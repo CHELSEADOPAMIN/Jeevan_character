@@ -1,3 +1,126 @@
+# CodexPet English Guide
+
+This section is written for non-technical users.
+
+CodexPet is a small pixel-style character for Codex. It is based on a business-suit character design and can appear inside Codex as a personal pet.
+
+![CodexPet preview](assets/codexpet/codexpet-preview.png)
+
+## What To Send To Someone
+
+If someone only wants to install the pet, they only need these two files:
+
+```text
+pet.json
+spritesheet.webp
+```
+
+In this project, those files are here:
+
+```text
+pets/codexpet/pet.json
+pets/codexpet/spritesheet.webp
+```
+
+They do not need the plugin folder, demo page, source images, or any developer files.
+
+## Simple Installation On Mac
+
+1. Create a new folder called:
+
+```text
+codexpet
+```
+
+2. Put these two files inside that folder:
+
+```text
+pet.json
+spritesheet.webp
+```
+
+3. Open Finder.
+
+4. Open your home folder. On a Mac, it usually looks like this:
+
+```text
+/Users/your-name/
+```
+
+5. Find or create this folder:
+
+```text
+.codex/pets/
+```
+
+If you cannot see `.codex`, press `Command + Shift + .` in Finder to show hidden folders.
+
+6. Put the whole `codexpet` folder inside `.codex/pets/`.
+
+The final result should look exactly like this:
+
+```text
+.codex/
+  pets/
+    codexpet/
+      pet.json
+      spritesheet.webp
+```
+
+7. Restart Codex.
+
+8. If your Codex version supports custom pets, you should be able to choose:
+
+```text
+CodexPet
+```
+
+## What The Pet Does
+
+Codex chooses different animations depending on what is happening in the app. You do not need to control these manually.
+
+| Situation in Codex | What CodexPet does |
+| --- | --- |
+| Codex is idle | Stands calmly and waits |
+| Codex is working or moving through a task | Runs |
+| Codex is greeting or acknowledging something | Waves |
+| Codex is thinking or waiting | Looks thoughtful |
+| Codex is jumping into action | Jumps |
+| Codex needs attention or has a failed state | Uses a lower/crouched pose |
+| Codex is pointing something out | Points forward |
+| Codex finishes something successfully | Celebrates |
+
+## Visual Examples
+
+| Idle | Wave | Run | Thinking | Celebrate |
+| --- | --- | --- | --- | --- |
+| ![Idle](assets/codexpet/idle.png) | ![Wave](assets/codexpet/wave.png) | ![Run](assets/codexpet/run.png) | ![Thinking](assets/codexpet/thinking.png) | ![Celebrate](assets/codexpet/celebrate.png) |
+
+## Common Mistakes
+
+If the pet does not appear in Codex, check these things:
+
+1. The folder name should be `codexpet`.
+2. The folder must be inside `.codex/pets/`.
+3. The files must be named exactly `pet.json` and `spritesheet.webp`.
+4. There should not be an extra folder inside another folder.
+
+Wrong:
+
+```text
+.codex/pets/codexpet/codexpet/pet.json
+```
+
+Correct:
+
+```text
+.codex/pets/codexpet/pet.json
+```
+
+After fixing the files, restart Codex.
+
+---
+
 # CodexPet 中文安装说明
 
 CodexPet 是一个基于像素商务人物生成的 Codex 自定义 pet。这个仓库同时包含：
@@ -261,126 +384,3 @@ plugins/codexpet/examples/index.html
 ```
 
 直接用浏览器打开即可查看和切换 CodexPet 的动作状态。
-
----
-
-# CodexPet English Guide
-
-This section is written for non-technical users.
-
-CodexPet is a small pixel-style character for Codex. It is based on a business-suit character design and can appear inside Codex as a personal pet.
-
-![CodexPet preview](assets/codexpet/codexpet-preview.png)
-
-## What To Send To Someone
-
-If someone only wants to install the pet, they only need these two files:
-
-```text
-pet.json
-spritesheet.webp
-```
-
-In this project, those files are here:
-
-```text
-pets/codexpet/pet.json
-pets/codexpet/spritesheet.webp
-```
-
-They do not need the plugin folder, demo page, source images, or any developer files.
-
-## Simple Installation On Mac
-
-1. Create a new folder called:
-
-```text
-codexpet
-```
-
-2. Put these two files inside that folder:
-
-```text
-pet.json
-spritesheet.webp
-```
-
-3. Open Finder.
-
-4. Open your home folder. On a Mac, it usually looks like this:
-
-```text
-/Users/your-name/
-```
-
-5. Find or create this folder:
-
-```text
-.codex/pets/
-```
-
-If you cannot see `.codex`, press `Command + Shift + .` in Finder to show hidden folders.
-
-6. Put the whole `codexpet` folder inside `.codex/pets/`.
-
-The final result should look exactly like this:
-
-```text
-.codex/
-  pets/
-    codexpet/
-      pet.json
-      spritesheet.webp
-```
-
-7. Restart Codex.
-
-8. If your Codex version supports custom pets, you should be able to choose:
-
-```text
-CodexPet
-```
-
-## What The Pet Does
-
-Codex chooses different animations depending on what is happening in the app. You do not need to control these manually.
-
-| Situation in Codex | What CodexPet does |
-| --- | --- |
-| Codex is idle | Stands calmly and waits |
-| Codex is working or moving through a task | Runs |
-| Codex is greeting or acknowledging something | Waves |
-| Codex is thinking or waiting | Looks thoughtful |
-| Codex is jumping into action | Jumps |
-| Codex needs attention or has a failed state | Uses a lower/crouched pose |
-| Codex is pointing something out | Points forward |
-| Codex finishes something successfully | Celebrates |
-
-## Visual Examples
-
-| Idle | Wave | Run | Thinking | Celebrate |
-| --- | --- | --- | --- | --- |
-| ![Idle](assets/codexpet/idle.png) | ![Wave](assets/codexpet/wave.png) | ![Run](assets/codexpet/run.png) | ![Thinking](assets/codexpet/thinking.png) | ![Celebrate](assets/codexpet/celebrate.png) |
-
-## Common Mistakes
-
-If the pet does not appear in Codex, check these things:
-
-1. The folder name should be `codexpet`.
-2. The folder must be inside `.codex/pets/`.
-3. The files must be named exactly `pet.json` and `spritesheet.webp`.
-4. There should not be an extra folder inside another folder.
-
-Wrong:
-
-```text
-.codex/pets/codexpet/codexpet/pet.json
-```
-
-Correct:
-
-```text
-.codex/pets/codexpet/pet.json
-```
-
-After fixing the files, restart Codex.
