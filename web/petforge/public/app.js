@@ -9,8 +9,10 @@ const sheetLink = document.querySelector("#view-sheet");
 const installPath = document.querySelector("#install-path");
 const modeNote = document.querySelector("#mode-note");
 const submit = form.querySelector("button[type='submit']");
+const serverMode = document.querySelector("#server-mode");
 
 let imageDataUrl = "";
+let canGenerateFromPhoto = false;
 
 function setStages(activeName) {
   const order = ["upload", "sprite", "atlas", "download"];
@@ -40,6 +42,33 @@ photo.addEventListener("change", async () => {
   setStages("upload");
 });
 
+async function loadStatus() {
+  try {
+    const response = await fetch("/api/status");
+    const status = await response.json();
+    canGenerateFromPhoto = status.canGenerateFromPhoto;
+
+    serverMode.classList.remove("ok", "warn");
+    if (status.mode === "openai") {
+      serverMode.textContent = "Photo generation is enabled. Uploaded images will be used to create a new pet.";
+      serverMode.classList.add("ok");
+      submit.disabled = false;
+    } else if (status.mode === "demo") {
+      serverMode.textContent = "Demo mode is on. The app will use the bundled sample character, not your uploaded photo.";
+      serverMode.classList.add("warn");
+      submit.disabled = false;
+    } else {
+      serverMode.textContent = "Photo generation is not enabled. Add OPENAI_API_KEY to web/petforge/.env and restart the server.";
+      serverMode.classList.add("warn");
+      submit.disabled = true;
+    }
+  } catch {
+    serverMode.textContent = "Could not read server status.";
+    serverMode.classList.add("warn");
+    submit.disabled = true;
+  }
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   errorBox.hidden = true;
@@ -47,6 +76,12 @@ form.addEventListener("submit", async (event) => {
 
   if (!imageDataUrl) {
     errorBox.textContent = "Please upload a photo first.";
+    errorBox.hidden = false;
+    return;
+  }
+
+  if (!canGenerateFromPhoto && !serverMode.textContent.includes("Demo mode")) {
+    errorBox.textContent = "Photo generation is not enabled. Add OPENAI_API_KEY to web/petforge/.env and restart the server.";
     errorBox.hidden = false;
     return;
   }
@@ -78,7 +113,7 @@ form.addEventListener("submit", async (event) => {
     sheetLink.href = data.downloads.contactSheet;
     installPath.textContent = `~/.codex/pets/${data.petId}/`;
     modeNote.textContent = data.mode === "demo"
-      ? "Demo mode: no OpenAI API key was found, so the bundled sample pet was packaged. Add OPENAI_API_KEY on the server for real photo generation."
+      ? "Demo mode: the bundled sample pet was packaged. Turn off PETFORGE_DEMO_ONLY and add OPENAI_API_KEY for real photo generation."
       : "Generated from the uploaded photo with the image API.";
     result.hidden = false;
   } catch (error) {
@@ -90,3 +125,5 @@ form.addEventListener("submit", async (event) => {
     submit.querySelector("span").textContent = "Generate pet package";
   }
 });
+
+loadStatus();

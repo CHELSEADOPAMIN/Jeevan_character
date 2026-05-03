@@ -96,7 +96,13 @@ Open:
 http://localhost:4177
 ```
 
-If there is no API key, the app still opens in demo mode and creates a sample package from the bundled CodexPet assets. For real photo-to-pet generation, the server needs `OPENAI_API_KEY`.
+For real photo-to-pet generation, the server needs `OPENAI_API_KEY`. If you intentionally want to test the interface with the bundled sample character, start with:
+
+```bash
+PETFORGE_DEMO_ONLY=1 npm run dev
+```
+
+Demo mode always uses the original sample CodexPet character. It does not use the uploaded photo.
 
 ## Simple Installation On Mac
 
@@ -314,7 +320,13 @@ npm run dev
 http://localhost:4177
 ```
 
-如果没有 API key，网页仍然可以打开 demo 模式，并用内置 CodexPet 素材生成示例安装包。真正从照片生成 pet 时，服务器需要 `OPENAI_API_KEY`。
+真正从照片生成 pet 时，服务器必须有 `OPENAI_API_KEY`。如果你只是想测试网页界面，可以手动启动 demo 模式：
+
+```bash
+PETFORGE_DEMO_ONLY=1 npm run dev
+```
+
+demo 模式永远使用原来的 CodexPet 示例角色，不会使用你上传的新照片。
 
 ## 安装方式一：只安装成 Codex Pet
 

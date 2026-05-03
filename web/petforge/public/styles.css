@@ -78,6 +78,24 @@ h1 {
   line-height: 1.4;
 }
 
+.server-mode {
+  width: fit-content;
+  max-width: 760px;
+  border: 2px solid var(--line);
+  background: #fffdfa;
+  padding: 10px 12px;
+  box-shadow: 4px 4px 0 var(--line);
+  font: 800 14px/1.35 ui-sans-serif, system-ui, sans-serif;
+}
+
+.server-mode.ok {
+  background: #dcefd1;
+}
+
+.server-mode.warn {
+  background: #ffe0c7;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(320px, .72fr);

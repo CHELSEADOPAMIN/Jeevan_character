@@ -120,8 +120,12 @@ function petPrompt(styleNote) {
 }
 
 async function generateSpriteSheet({ sourcePath, mime, outPath, styleNote }) {
-  if (!process.env.OPENAI_API_KEY || process.env.PETFORGE_DEMO_ONLY === "1") {
-    return { mode: "demo", reason: "OPENAI_API_KEY is not set; using bundled sample poses." };
+  if (process.env.PETFORGE_DEMO_ONLY === "1") {
+    return { mode: "demo", reason: "PETFORGE_DEMO_ONLY=1 is set; using bundled sample poses." };
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not set. Add it to web/petforge/.env, then restart the server. Without an API key, the app cannot generate a new character from your uploaded photo.");
   }
 
   const input = readFileSync(sourcePath);
@@ -259,8 +263,23 @@ async function handleGenerate(req, res) {
   }
 }
 
+function handleStatus(res) {
+  const demoOnly = process.env.PETFORGE_DEMO_ONLY === "1";
+  sendJson(res, 200, {
+    hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+    demoOnly,
+    canGenerateFromPhoto: Boolean(process.env.OPENAI_API_KEY) && !demoOnly,
+    mode: demoOnly ? "demo" : process.env.OPENAI_API_KEY ? "openai" : "missing-key"
+  });
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (req.method === "GET" && url.pathname === "/api/status") {
+    handleStatus(res);
+    return;
+  }
 
   if (req.method === "POST" && url.pathname === "/api/generate") {
     await handleGenerate(req, res);
