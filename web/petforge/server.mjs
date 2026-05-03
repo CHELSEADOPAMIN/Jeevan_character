@@ -147,8 +147,8 @@ function readBody(req) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
-      if (body.length > 15 * 1024 * 1024) {
-        reject(new Error("Upload is too large. Please use an image under 10 MB."));
+      if (body.length > 4 * 1024 * 1024) {
+        reject(new Error("Upload is too large. Please use an image under 3 MB."));
         req.destroy();
       }
     });

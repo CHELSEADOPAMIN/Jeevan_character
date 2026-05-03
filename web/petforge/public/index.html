@@ -30,7 +30,7 @@
               <span></span>
             </div>
             <strong>Drop a photo here</strong>
-            <small>PNG, JPG, or WebP. A front-facing full-body or half-body photo works best.</small>
+            <small>PNG, JPG, or WebP under 3 MB. A front-facing full-body or half-body photo works best.</small>
           </div>
 
           <div class="preview-wrap" id="preview-wrap" hidden>
@@ -101,6 +101,13 @@
             <div class="install-box">
               <strong>Install path</strong>
               <code id="install-path">~/.codex/pets/my-codexpet/</code>
+            </div>
+            <div class="prompt-box">
+              <div class="prompt-head">
+                <strong>Codex install prompt</strong>
+                <button id="copy-prompt" type="button">Copy prompt</button>
+              </div>
+              <textarea id="install-prompt" readonly rows="5"></textarea>
             </div>
           </div>
 

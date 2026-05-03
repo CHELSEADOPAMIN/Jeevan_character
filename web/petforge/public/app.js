@@ -7,12 +7,15 @@ const errorBox = document.querySelector("#error");
 const zipLink = document.querySelector("#download-zip");
 const sheetLink = document.querySelector("#view-sheet");
 const installPath = document.querySelector("#install-path");
+const installPrompt = document.querySelector("#install-prompt");
+const copyPrompt = document.querySelector("#copy-prompt");
 const modeNote = document.querySelector("#mode-note");
 const submit = form.querySelector("button[type='submit']");
 const serverMode = document.querySelector("#server-mode");
 
 let imageDataUrl = "";
 let canGenerateFromPhoto = false;
+const maxUploadBytes = 3 * 1024 * 1024;
 
 function quotaText(quota) {
   if (!quota) return "";
@@ -33,6 +36,18 @@ function setStages(activeName) {
   });
 }
 
+function buildInstallPrompt({ petId }) {
+  const installDir = `~/.codex/pets/${petId}/`;
+  return [
+    "Please install this Codex pet for me using the attached zip file.",
+    "",
+    `Unzip it into: ${installDir}`,
+    "Then set it as my Codex pet.",
+    "",
+    "After installing, verify that pet.json and spritesheet.webp are inside that folder."
+  ].join("\n");
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -42,9 +57,33 @@ function readFileAsDataUrl(file) {
   });
 }
 
+async function readJsonOrError(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  if (response.status === 413 || text.startsWith("Request En")) {
+    throw new Error("Uploaded image is too large for this hosted version. Please use a photo under 3 MB.");
+  }
+  throw new Error(text || `Request failed with status ${response.status}.`);
+}
+
 photo.addEventListener("change", async () => {
   const file = photo.files?.[0];
   if (!file) return;
+  errorBox.hidden = true;
+
+  if (file.size > maxUploadBytes) {
+    imageDataUrl = "";
+    photo.value = "";
+    previewWrap.hidden = true;
+    errorBox.textContent = "Please upload a photo under 3 MB.";
+    errorBox.hidden = false;
+    return;
+  }
+
   imageDataUrl = await readFileAsDataUrl(file);
   preview.src = imageDataUrl;
   previewWrap.hidden = false;
@@ -114,13 +153,17 @@ form.addEventListener("submit", async (event) => {
     });
 
     setStages("atlas");
-    const data = await response.json();
+    const data = await readJsonOrError(response);
     if (!response.ok) throw new Error(data.error || "Generation failed.");
 
     setStages("download");
     zipLink.href = data.downloads.zip;
     sheetLink.href = data.downloads.contactSheet;
     installPath.textContent = `~/.codex/pets/${data.petId}/`;
+    installPrompt.value = buildInstallPrompt({
+      petId: data.petId
+    });
+    copyPrompt.textContent = "Copy prompt";
     modeNote.textContent = data.mode === "demo"
       ? "Demo mode: the bundled sample pet was packaged. Turn off PETFORGE_DEMO_ONLY and add OPENAI_API_KEY for real photo generation."
       : "Generated from the uploaded photo with the image API.";
@@ -133,6 +176,21 @@ form.addEventListener("submit", async (event) => {
   } finally {
     submit.disabled = false;
     submit.querySelector("span").textContent = "Generate pet package";
+  }
+});
+
+copyPrompt.addEventListener("click", async () => {
+  if (!installPrompt.value) return;
+
+  try {
+    await navigator.clipboard.writeText(installPrompt.value);
+    copyPrompt.textContent = "Copied";
+    window.setTimeout(() => {
+      copyPrompt.textContent = "Copy prompt";
+    }, 1800);
+  } catch {
+    installPrompt.select();
+    copyPrompt.textContent = "Select text";
   }
 });
 

@@ -309,6 +309,39 @@ textarea:focus {
   border: 2px solid var(--line);
 }
 
+.prompt-box {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #e9f2de;
+  border: 2px solid var(--line);
+}
+
+.prompt-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.prompt-head button {
+  border: 2px solid var(--line);
+  background: var(--amber);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--line);
+  padding: 8px 10px;
+  font: 900 13px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.prompt-box textarea {
+  min-height: 132px;
+  resize: vertical;
+  font: 600 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   overflow-wrap: anywhere;
