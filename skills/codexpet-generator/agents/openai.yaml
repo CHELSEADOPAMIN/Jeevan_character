@@ -1,0 +1,4 @@
+interface:
+  display_name: "CodexPet Generator"
+  short_description: "Turn character artwork into a Codex custom pet package."
+  default_prompt: "Create a Codex custom pet from my supplied character artwork, including pet.json, spritesheet.webp, validation, preview images, and a simple install package."

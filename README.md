@@ -24,6 +24,36 @@ pets/codexpet/spritesheet.webp
 
 They do not need the plugin folder, demo page, source images, or any developer files.
 
+## Reusable Pet Generator Agent
+
+This repo also includes a reusable Codex skill/agent:
+
+```text
+skills/codexpet-generator/
+```
+
+It captures the method used to make this pet. In future, you can send Codex a character image or sprite sheet and ask:
+
+```text
+Use codexpet-generator to turn this character into a Codex pet.
+```
+
+The agent is designed to produce:
+
+- transparent pose PNGs
+- `pet.json`
+- `spritesheet.webp`
+- a preview/contact sheet
+- a small install package that only needs the two runtime files
+
+I have also installed it locally at:
+
+```text
+~/.codex/skills/codexpet-generator/
+```
+
+So on this computer, future Codex sessions can reuse the same workflow directly.
+
 ## Simple Installation On Mac
 
 1. Create a new folder called:
@@ -167,6 +197,36 @@ plugins/codexpet/
 .agents/plugins/marketplace.json
 pets/codexpet/
 ```
+
+## 可复用 Pet 生成 Agent
+
+这个仓库里也放了一个可复用的 Codex skill/agent：
+
+```text
+skills/codexpet-generator/
+```
+
+它把这次做 pet 的方法固定成流程。以后你只要给 Codex 一张角色图、头像图或 sprite sheet，然后说：
+
+```text
+Use codexpet-generator to turn this character into a Codex pet.
+```
+
+它会按这套流程生成：
+
+- 透明动作 PNG
+- `pet.json`
+- `spritesheet.webp`
+- 预览图/contact sheet
+- 只包含两个核心运行文件的小安装包
+
+我也已经把它安装到本机：
+
+```text
+~/.codex/skills/codexpet-generator/
+```
+
+所以以后你在这台电脑上发素材给 Codex，就可以直接复用这个生成流程。
 
 ## 安装方式一：只安装成 Codex Pet
 
