@@ -9,13 +9,35 @@ CodexPet 是一个基于像素商务人物生成的 Codex 自定义 pet。这个
 
 ## 发送给朋友的文件
 
-把这个压缩包发给朋友：
+如果朋友只是想把这个形象导入 Codex 当 pet，只需要发下面两个文件：
+
+```text
+pets/codexpet/pet.json
+pets/codexpet/spritesheet.webp
+```
+
+这两个文件必须放在同一个文件夹里，文件夹名建议就叫：
+
+```text
+codexpet
+```
+
+最终朋友电脑上的结构应该是：
+
+```text
+~/.codex/pets/codexpet/pet.json
+~/.codex/pets/codexpet/spritesheet.webp
+```
+
+也就是说：安装 pet 本身不需要 `plugins/`、`.agents/`、`assets/`、`examples/`、`README.md` 或其他文件。
+
+如果你想把完整素材包、插件说明和 demo 一起发给朋友，再发送这个压缩包：
 
 ```text
 dist/codexpet-plugin.zip
 ```
 
-压缩包里包含：
+这个完整压缩包里包含：
 
 ```text
 plugins/codexpet/
@@ -23,31 +45,30 @@ plugins/codexpet/
 pets/codexpet/
 ```
 
-真正让 Codex 识别 pet 的核心文件是：
-
-```text
-pets/codexpet/pet.json
-pets/codexpet/spritesheet.webp
-```
-
 ## 安装方式一：只安装成 Codex Pet
 
 适合只想把 CodexPet 作为 Codex 里的 pet 使用。
 
-1. 解压 `codexpet-plugin.zip`。
-
-2. 找到解压后的目录：
+1. 新建一个文件夹，命名为：
 
 ```text
-pets/codexpet/
+codexpet
 ```
 
-里面应该有：
+2. 把这两个文件放进去：
 
 ```text
 pet.json
 spritesheet.webp
 ```
+
+如果你收到的是完整压缩包 `codexpet-plugin.zip`，就先解压，然后找到：
+
+```text
+pets/codexpet/
+```
+
+这个目录里也只有 pet 安装真正需要的两个文件。
 
 3. 打开自己的用户目录。
 
@@ -65,7 +86,7 @@ macOS 通常是：
 
 如果没有 `.codex` 或 `pets` 文件夹，就手动创建。
 
-5. 把解压出来的 `pets/codexpet` 整个文件夹复制进去。
+5. 把 `codexpet` 整个文件夹复制进去。
 
 最终文件结构必须是：
 
@@ -88,6 +109,16 @@ macOS 通常是：
 
 ```text
 CodexPet
+```
+
+### 两个文件安装版示例
+
+朋友安装完后，`codexpet` 文件夹里应该只有这两个核心文件：
+
+```text
+codexpet/
+  pet.json
+  spritesheet.webp
 ```
 
 ## 安装方式二：同时安装插件资源包
