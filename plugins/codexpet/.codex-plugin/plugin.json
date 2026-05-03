@@ -1,0 +1,48 @@
+{
+  "name": "codexpet",
+  "version": "0.1.0",
+  "description": "A local Codex companion pet asset pack generated from the user's pixel character.",
+  "author": {
+    "name": "Jeevan Character Workspace",
+    "email": "local@example.com",
+    "url": "https://example.com/codexpet"
+  },
+  "homepage": "https://example.com/codexpet",
+  "repository": "https://example.com/codexpet",
+  "license": "UNLICENSED",
+  "keywords": [
+    "codexpet",
+    "pixel-art",
+    "desktop-pet",
+    "companion",
+    "mascot"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CodexPet",
+    "shortDescription": "Pixel companion pet states for Codex-style workflows.",
+    "longDescription": "CodexPet packages a chibi pixel-art companion character with transparent PNG states, a sprite sheet, a manifest, and a browser demo. Use it as a desktop pet, app assistant, web helper, or task feedback mascot.",
+    "developerName": "Jeevan Character Workspace",
+    "category": "Productivity",
+    "capabilities": [
+      "Assets",
+      "Companion",
+      "Pixel Art"
+    ],
+    "websiteURL": "https://example.com/codexpet",
+    "privacyPolicyURL": "https://example.com/codexpet/privacy",
+    "termsOfServiceURL": "https://example.com/codexpet/terms",
+    "defaultPrompt": [
+      "Use CodexPet as my app companion.",
+      "Show me the CodexPet states.",
+      "Create a UI using CodexPet."
+    ],
+    "brandColor": "#112B59",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
+    "screenshots": [
+      "./assets/screenshot1.png",
+      "./assets/screenshot2.png"
+    ]
+  }
+}

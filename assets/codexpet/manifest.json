@@ -1,0 +1,52 @@
+{
+  "name": "CodexPet",
+  "version": "0.1.0",
+  "source": "Generated from the user's reference pixel character image.",
+  "style": {
+    "format": "chibi pixel art",
+    "identity": [
+      "black curly hair",
+      "tan skin",
+      "navy suit",
+      "lavender shirt",
+      "confident friendly expression",
+      "desktop/app companion proportions"
+    ]
+  },
+  "sheet": "codexpet-sheet.png",
+  "preview": "codexpet-preview.png",
+  "states": {
+    "idle": {
+      "file": "idle.png",
+      "use": "Default resting state"
+    },
+    "wave": {
+      "file": "wave.png",
+      "use": "Greeting or onboarding"
+    },
+    "thinking": {
+      "file": "thinking.png",
+      "use": "Waiting, loading, or AI reasoning"
+    },
+    "run": {
+      "file": "run.png",
+      "use": "Executing an action or moving between views"
+    },
+    "jump": {
+      "file": "jump.png",
+      "use": "Positive feedback or small success"
+    },
+    "crouch": {
+      "file": "crouch.png",
+      "use": "Resting, hiding, or low-attention mode"
+    },
+    "point": {
+      "file": "point.png",
+      "use": "Guidance, tips, or pointing to UI"
+    },
+    "celebrate": {
+      "file": "celebrate.png",
+      "use": "Task completed or major success"
+    }
+  }
+}

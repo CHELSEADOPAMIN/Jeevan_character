@@ -1,0 +1,20 @@
+{
+  "name": "jeevan-character-local",
+  "interface": {
+    "displayName": "Jeevan Character Local Plugins"
+  },
+  "plugins": [
+    {
+      "name": "codexpet",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codexpet"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
