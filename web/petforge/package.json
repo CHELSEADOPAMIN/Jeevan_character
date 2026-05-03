@@ -7,6 +7,10 @@
     "dev": "node server.mjs",
     "start": "node server.mjs"
   },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "sharp": "^0.34.5"
+  },
   "engines": {
     "node": ">=20"
   }

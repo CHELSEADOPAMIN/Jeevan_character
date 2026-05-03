@@ -1,11 +1,11 @@
 import { createServer } from "node:http";
-import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import JSZip from "jszip";
+import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../..");
@@ -27,24 +27,23 @@ const dailyGenerationLimit = Number(process.env.PETFORGE_DAILY_LIMIT || 5);
 const quotaPath = path.join(jobsDir, "daily-generation-quota.json");
 
 const poseNames = ["idle", "run", "wave", "jump", "crouch", "thinking", "point", "celebrate"];
-
-function findPython() {
-  const candidates = [
-    process.env.PYTHON,
-    path.join(process.env.HOME || "", ".pyenv/shims/python3"),
-    "/opt/homebrew/bin/python3",
-    "/usr/local/bin/python3",
-    "python3"
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const check = spawnSync(candidate, ["-c", "import PIL"], { stdio: "ignore" });
-    if (check.status === 0) return candidate;
-  }
-  return "python3";
-}
-
-const python = findPython();
+const cellWidth = 192;
+const cellHeight = 208;
+const atlasColumns = 8;
+const atlasRows = 9;
+const atlasWidth = cellWidth * atlasColumns;
+const atlasHeight = cellHeight * atlasRows;
+const rowSpecs = [
+  ["idle", ["idle"], false],
+  ["running-right", ["run", "running", "running-right"], false],
+  ["running-left", ["run-left", "running-left", "run", "running"], true],
+  ["waving", ["wave", "waving", "idle"], false],
+  ["jumping", ["jump", "jumping", "run"], false],
+  ["failed", ["failed", "crouch", "sad", "idle"], false],
+  ["waiting", ["thinking", "waiting", "idle"], false],
+  ["running", ["run", "running", "running-right"], false],
+  ["review", ["point", "review", "thinking", "idle"], false]
+];
 
 function sendJson(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -158,20 +157,6 @@ function readBody(req) {
   });
 }
 
-function run(command, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: repoRoot, stdio: ["ignore", "pipe", "pipe"], ...options });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("close", (code) => {
-      if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`${command} ${args.join(" ")} failed\n${stderr || stdout}`));
-    });
-  });
-}
-
 function cleanId(value) {
   return String(value || "custom-pet")
     .toLowerCase()
@@ -244,6 +229,241 @@ function copyDemoPoses(outDir) {
   }
 }
 
+function rawImage(buffer, width, height) {
+  return sharp(buffer, { raw: { width, height, channels: 4 } });
+}
+
+function alphaBounds(buffer, width, height) {
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = buffer[(y * width + x) * 4 + 3];
+      if (alpha === 0) continue;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    }
+  }
+
+  if (right < left || bottom < top) return null;
+  return { left, top, width: right - left + 1, height: bottom - top + 1 };
+}
+
+function removeFlatBackground(buffer, width, height, tolerance = 26) {
+  const corners = [
+    0,
+    (width - 1) * 4,
+    ((height - 1) * width) * 4,
+    ((height - 1) * width + width - 1) * 4
+  ];
+  const bgOffset = corners.reduce((best, offset) => {
+    const bestTotal = buffer[best] + buffer[best + 1] + buffer[best + 2];
+    const total = buffer[offset] + buffer[offset + 1] + buffer[offset + 2];
+    return total > bestTotal ? offset : best;
+  }, corners[0]);
+  const bg = [buffer[bgOffset], buffer[bgOffset + 1], buffer[bgOffset + 2]];
+
+  for (let offset = 0; offset < buffer.length; offset += 4) {
+    if (buffer[offset + 3] === 0) continue;
+    const distance = Math.max(
+      Math.abs(buffer[offset] - bg[0]),
+      Math.abs(buffer[offset + 1] - bg[1]),
+      Math.abs(buffer[offset + 2] - bg[2])
+    );
+    if (distance <= tolerance && buffer[offset] + buffer[offset + 1] + buffer[offset + 2] > 600) {
+      buffer[offset + 3] = 0;
+    }
+  }
+}
+
+async function writePngFromRaw(buffer, width, height, outPath) {
+  await rawImage(buffer, width, height).png().toFile(outPath);
+}
+
+async function trimTransparent(buffer, width, height) {
+  const bounds = alphaBounds(buffer, width, height);
+  if (!bounds) return { buffer, width, height };
+
+  const { data, info } = await rawImage(buffer, width, height)
+    .extract(bounds)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return { buffer: data, width: info.width, height: info.height };
+}
+
+async function extractPosesFromSheet(sheetPath, outDir) {
+  const poseMap = {
+    idle: [0, 0],
+    run: [1, 0],
+    wave: [2, 0],
+    jump: [3, 0],
+    crouch: [0, 1],
+    thinking: [1, 1],
+    point: [2, 1],
+    celebrate: [3, 1]
+  };
+  const { data, info } = await sharp(sheetPath)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const cellW = Math.floor(info.width / 4);
+  const cellH = Math.floor(info.height / 4);
+  mkdirSync(outDir, { recursive: true });
+
+  for (const [pose, [col, row]] of Object.entries(poseMap)) {
+    const { data: crop, info: cropInfo } = await rawImage(data, info.width, info.height)
+      .extract({ left: col * cellW, top: row * cellH, width: cellW, height: cellH })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    removeFlatBackground(crop, cropInfo.width, cropInfo.height);
+    const trimmed = await trimTransparent(crop, cropInfo.width, cropInfo.height);
+    await writePngFromRaw(trimmed.buffer, trimmed.width, trimmed.height, path.join(outDir, `${pose}.png`));
+  }
+}
+
+function findPose(poseDir, names) {
+  for (const name of names) {
+    for (const ext of [".png", ".webp"]) {
+      const posePath = path.join(poseDir, `${name}${ext}`);
+      if (existsSync(posePath)) return posePath;
+    }
+  }
+  throw new Error(`Missing pose. Tried: ${names.join(", ")}`);
+}
+
+async function fitToCell(posePath, mirror) {
+  let image = sharp(posePath).ensureAlpha();
+  if (mirror) image = image.flop();
+  const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  const trimmed = await trimTransparent(data, info.width, info.height);
+  const maxW = Math.floor(cellWidth * 0.82);
+  const maxH = Math.floor(cellHeight * 0.88);
+  const scale = Math.min(maxW / trimmed.width, maxH / trimmed.height, 1);
+  const resizedW = Math.max(1, Math.round(trimmed.width * scale));
+  const resizedH = Math.max(1, Math.round(trimmed.height * scale));
+  const resized = await rawImage(trimmed.buffer, trimmed.width, trimmed.height)
+    .resize(resizedW, resizedH, { kernel: "lanczos3" })
+    .png()
+    .toBuffer();
+  const x = Math.floor((cellWidth - resizedW) / 2);
+  const y = cellHeight - resizedH - 10;
+
+  return sharp({
+    create: {
+      width: cellWidth,
+      height: cellHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  }).composite([{ input: resized, left: x, top: y }]).raw().toBuffer();
+}
+
+function frameOffset(frameIndex, rowName) {
+  const offsets = {
+    idle: [[0, 0], [0, -1], [0, 0], [0, 1], [0, 0], [0, -1], [0, 0], [0, 1]],
+    waving: [[0, 0], [1, -1], [0, -1], [-1, 0], [0, 0], [1, -1], [0, -1], [-1, 0]],
+    waiting: [[0, 0], [0, 0], [0, -1], [0, -1], [0, 0], [0, 1], [0, 1], [0, 0]],
+    failed: [[0, 2], [0, 3], [0, 2], [0, 4], [0, 3], [0, 2], [0, 3], [0, 2]],
+    jumping: [[0, 0], [0, -6], [1, -12], [1, -18], [0, -14], [-1, -8], [0, -3], [0, 0]],
+    review: [[0, 0], [1, 0], [2, 0], [1, 0], [0, 0], [1, -1], [2, -1], [1, 0]]
+  };
+  const sequence = rowName.includes("running")
+    ? [[-5, 0], [-3, -2], [0, 0], [3, -2], [5, 0], [3, 1], [0, 0], [-3, 1]]
+    : offsets[rowName] || offsets.idle;
+  return sequence[frameIndex % sequence.length];
+}
+
+function shiftedFrame(cellBuffer, frameIndex, rowName) {
+  const [dx, dy] = frameOffset(frameIndex, rowName);
+  const frame = Buffer.alloc(cellWidth * cellHeight * 4);
+
+  for (let y = 0; y < cellHeight; y += 1) {
+    const targetY = y + dy;
+    if (targetY < 0 || targetY >= cellHeight) continue;
+    for (let x = 0; x < cellWidth; x += 1) {
+      const targetX = x + dx;
+      if (targetX < 0 || targetX >= cellWidth) continue;
+      const sourceOffset = (y * cellWidth + x) * 4;
+      const targetOffset = (targetY * cellWidth + targetX) * 4;
+      frame[targetOffset] = cellBuffer[sourceOffset];
+      frame[targetOffset + 1] = cellBuffer[sourceOffset + 1];
+      frame[targetOffset + 2] = cellBuffer[sourceOffset + 2];
+      frame[targetOffset + 3] = cellBuffer[sourceOffset + 3];
+    }
+  }
+
+  return frame;
+}
+
+async function buildPetAtlas(poseDir, outputPath, contactSheetPath, jsonOutPath) {
+  const composites = [];
+  const used = {};
+
+  for (let row = 0; row < rowSpecs.length; row += 1) {
+    const [rowName, fallbacks, mirror] = rowSpecs[row];
+    const posePath = findPose(poseDir, fallbacks);
+    const needsMirror = mirror && !["run-left", "running-left"].includes(path.parse(posePath).name);
+    const cell = await fitToCell(posePath, needsMirror);
+    used[rowName] = posePath;
+
+    for (let col = 0; col < atlasColumns; col += 1) {
+      composites.push({
+        input: shiftedFrame(cell, col, rowName),
+        raw: { width: cellWidth, height: cellHeight, channels: 4 },
+        left: col * cellWidth,
+        top: row * cellHeight
+      });
+    }
+  }
+
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  const atlas = sharp({
+    create: {
+      width: atlasWidth,
+      height: atlasHeight,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  }).composite(composites);
+
+  const pngBuffer = await atlas.png().toBuffer();
+  await sharp(pngBuffer).webp({ lossless: true, quality: 100 }).toFile(outputPath);
+  if (contactSheetPath) {
+    mkdirSync(path.dirname(contactSheetPath), { recursive: true });
+    writeFileSync(contactSheetPath, pngBuffer);
+  }
+
+  const result = {
+    ok: true,
+    output: outputPath,
+    width: atlasWidth,
+    height: atlasHeight,
+    cell: [cellWidth, cellHeight],
+    rows: rowSpecs.map(([rowName]) => rowName),
+    used
+  };
+  if (jsonOutPath) {
+    mkdirSync(path.dirname(jsonOutPath), { recursive: true });
+    writeFileSync(jsonOutPath, `${JSON.stringify(result, null, 2)}\n`);
+  }
+  return result;
+}
+
+async function writeInstallZip({ zipPath, petDir, id }) {
+  const zip = new JSZip();
+  const folder = zip.folder(id);
+  folder.file("pet.json", readFileSync(path.join(petDir, "pet.json")));
+  folder.file("spritesheet.webp", readFileSync(path.join(petDir, "spritesheet.webp")));
+  folder.file("README.md", readFileSync(path.join(petDir, "README.md")));
+  const content = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  writeFileSync(zipPath, content);
+}
+
 async function createPetPackage({ dataUrl, petId, displayName, styleNote }) {
   const id = cleanId(petId);
   const name = String(displayName || id).trim() || id;
@@ -266,27 +486,11 @@ async function createPetPackage({ dataUrl, petId, displayName, styleNote }) {
   if (generation.mode === "demo") {
     copyDemoPoses(poseDir);
   } else {
-    await run(python, [
-      path.join(__dirname, "scripts/extract_poses_from_sheet.py"),
-      generatedSheet,
-      "--out",
-      poseDir,
-      "--grid",
-      "4x4"
-    ]);
+    await extractPosesFromSheet(generatedSheet, poseDir);
   }
 
   const atlasPath = path.join(petDir, "spritesheet.webp");
-  await run(python, [
-    path.join(repoRoot, "skills/codexpet-generator/scripts/build_pet_atlas.py"),
-    poseDir,
-    "--output",
-    atlasPath,
-    "--contact-sheet",
-    path.join(qaDir, "contact-sheet.png"),
-    "--json-out",
-    path.join(qaDir, "build.json")
-  ]);
+  await buildPetAtlas(poseDir, atlasPath, path.join(qaDir, "contact-sheet.png"), path.join(qaDir, "build.json"));
 
   const petJson = {
     id,
@@ -317,7 +521,7 @@ async function createPetPackage({ dataUrl, petId, displayName, styleNote }) {
   writeFileSync(path.join(petDir, "README.md"), installReadme);
 
   const zipPath = path.join(jobDir, `${id}-codex-pet.zip`);
-  await run("zip", ["-qr", zipPath, id], { cwd: jobDir });
+  await writeInstallZip({ zipPath, petDir, id });
 
   return {
     jobId,
@@ -366,7 +570,7 @@ function handleStatus(req, res) {
   });
 }
 
-const server = createServer(async (req, res) => {
+export async function appHandler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (req.method === "GET" && url.pathname === "/api/status") {
@@ -394,9 +598,15 @@ const server = createServer(async (req, res) => {
     filePath = path.join(publicDir, "index.html");
   }
   sendFile(res, filePath);
-});
+}
+
+export default appHandler;
+
+const server = createServer(appHandler);
 
 mkdirSync(jobsDir, { recursive: true });
-server.listen(port, () => {
-  console.log(`CodexPet Forge running at http://localhost:${port}`);
-});
+if (process.env.VERCEL !== "1") {
+  server.listen(port, () => {
+    console.log(`CodexPet Forge running at http://localhost:${port}`);
+  });
+}
