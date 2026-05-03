@@ -38,8 +38,15 @@ It captures the method used to make this pet. In future, you can send Codex a ch
 Use codexpet-generator to turn this character into a Codex pet.
 ```
 
+If you only have a normal photo of a person, you can also ask:
+
+```text
+Use codexpet-generator to generate an 8-bit platformer sprite sheet for this person, then turn it into a Codex pet.
+```
+
 The agent is designed to produce:
 
+- an 8-bit platformer sprite sheet from a single photo when needed
 - transparent pose PNGs
 - `pet.json`
 - `spritesheet.webp`
@@ -212,8 +219,15 @@ skills/codexpet-generator/
 Use codexpet-generator to turn this character into a Codex pet.
 ```
 
+如果你只有一张真人照片，也可以说：
+
+```text
+Use codexpet-generator to generate an 8-bit platformer sprite sheet for this person, then turn it into a Codex pet.
+```
+
 它会按这套流程生成：
 
+- 从单张照片生成 8-bit platformer sprite sheet
 - 透明动作 PNG
 - `pet.json`
 - `spritesheet.webp`
