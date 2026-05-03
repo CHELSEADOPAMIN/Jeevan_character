@@ -61,6 +61,43 @@ I have also installed it locally at:
 
 So on this computer, future Codex sessions can reuse the same workflow directly.
 
+## Photo Upload Web App
+
+This repo now includes a local web app for friends or students:
+
+```text
+web/petforge/
+```
+
+It lets someone upload a photo, generate an 8-bit platformer sprite sheet, and download a Codex pet install zip.
+
+To run it:
+
+```bash
+cd web/petforge
+cp .env.example .env
+```
+
+Open `.env` and add an OpenAI API key:
+
+```text
+OPENAI_API_KEY=sk-your-key-here
+```
+
+Then start the app:
+
+```bash
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:4177
+```
+
+If there is no API key, the app still opens in demo mode and creates a sample package from the bundled CodexPet assets. For real photo-to-pet generation, the server needs `OPENAI_API_KEY`.
+
 ## Simple Installation On Mac
 
 1. Create a new folder called:
@@ -241,6 +278,43 @@ Use codexpet-generator to generate an 8-bit platformer sprite sheet for this per
 ```
 
 所以以后你在这台电脑上发素材给 Codex，就可以直接复用这个生成流程。
+
+## 照片上传网页
+
+这个仓库现在也包含一个本地网页应用：
+
+```text
+web/petforge/
+```
+
+它可以让别人上传照片，生成 8-bit platformer sprite sheet，然后下载 Codex pet 安装包。
+
+启动方式：
+
+```bash
+cd web/petforge
+cp .env.example .env
+```
+
+打开 `.env`，填入 OpenAI API key：
+
+```text
+OPENAI_API_KEY=sk-your-key-here
+```
+
+然后启动：
+
+```bash
+npm run dev
+```
+
+打开：
+
+```text
+http://localhost:4177
+```
+
+如果没有 API key，网页仍然可以打开 demo 模式，并用内置 CodexPet 素材生成示例安装包。真正从照片生成 pet 时，服务器需要 `OPENAI_API_KEY`。
 
 ## 安装方式一：只安装成 Codex Pet
 

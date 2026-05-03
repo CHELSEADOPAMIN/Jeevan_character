@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CodexPet Forge</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="intro">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span>CodexPet Forge</span>
+        </div>
+        <h1>Turn a photo into a Codex pet.</h1>
+        <p>
+          Upload a clear photo, generate an 8-bit platformer sprite sheet, and download the two files Codex needs.
+        </p>
+      </section>
+
+      <section class="workspace" aria-label="Pet generator">
+        <form id="forge-form" class="panel">
+          <div class="dropzone" id="dropzone">
+            <input id="photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+            <div class="drop-art">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <strong>Drop a photo here</strong>
+            <small>PNG, JPG, or WebP. A front-facing full-body or half-body photo works best.</small>
+          </div>
+
+          <div class="preview-wrap" id="preview-wrap" hidden>
+            <img id="preview" alt="Uploaded photo preview" />
+          </div>
+
+          <label>
+            Pet name
+            <input id="display-name" name="displayName" type="text" value="My CodexPet" maxlength="40" />
+          </label>
+
+          <label>
+            Folder ID
+            <input id="pet-id" name="petId" type="text" value="my-codexpet" maxlength="48" />
+          </label>
+
+          <label>
+            Optional style note
+            <textarea id="style-note" name="styleNote" rows="3" placeholder="Example: navy suit, friendly teacher, red glasses, cozy pixel game style"></textarea>
+          </label>
+
+          <button class="primary" type="submit">
+            <span>Generate pet package</span>
+          </button>
+
+          <p class="fineprint">
+            The API key stays on the server. The browser only receives the finished install package.
+          </p>
+        </form>
+
+        <aside class="status">
+          <div class="stage active" data-stage="upload">
+            <span>1</span>
+            <div>
+              <strong>Upload</strong>
+              <small>Choose a person or character photo.</small>
+            </div>
+          </div>
+          <div class="stage" data-stage="sprite">
+            <span>2</span>
+            <div>
+              <strong>Sprite sheet</strong>
+              <small>Create 8-bit platformer poses.</small>
+            </div>
+          </div>
+          <div class="stage" data-stage="atlas">
+            <span>3</span>
+            <div>
+              <strong>Codex format</strong>
+              <small>Build pet.json and spritesheet.webp.</small>
+            </div>
+          </div>
+          <div class="stage" data-stage="download">
+            <span>4</span>
+            <div>
+              <strong>Download</strong>
+              <small>Copy into ~/.codex/pets.</small>
+            </div>
+          </div>
+
+          <div id="result" class="result" hidden>
+            <h2>Your pet is ready</h2>
+            <p id="mode-note"></p>
+            <div class="result-actions">
+              <a id="download-zip" class="download" href="#" download>Download install zip</a>
+              <a id="view-sheet" href="#" target="_blank" rel="noreferrer">View contact sheet</a>
+            </div>
+            <div class="install-box">
+              <strong>Install path</strong>
+              <code id="install-path">~/.codex/pets/my-codexpet/</code>
+            </div>
+          </div>
+
+          <div id="error" class="error" hidden></div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
