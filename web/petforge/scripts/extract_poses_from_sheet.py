@@ -61,14 +61,40 @@ def remove_flat_background(image: Image.Image, tolerance: int = 26) -> Image.Ima
     ]
     bg = max(corners, key=lambda px: px[0] + px[1] + px[2])
 
-    for y in range(image.height):
-        for x in range(image.width):
-            r, g, b, a = pixels[x, y]
-            if a == 0:
-                continue
-            distance = max(abs(r - bg[0]), abs(g - bg[1]), abs(b - bg[2]))
-            if distance <= tolerance and r + g + b > 600:
-                pixels[x, y] = (r, g, b, 0)
+    def matches_background(x: int, y: int) -> bool:
+        r, g, b, a = pixels[x, y]
+        if a == 0:
+            return False
+        distance = max(abs(r - bg[0]), abs(g - bg[1]), abs(b - bg[2]))
+        return distance <= tolerance and r + g + b > 600
+
+    visited: set[tuple[int, int]] = set()
+    queue: list[tuple[int, int]] = []
+
+    def enqueue(x: int, y: int) -> None:
+        if (x, y) in visited or not matches_background(x, y):
+            return
+        visited.add((x, y))
+        queue.append((x, y))
+
+    for x in range(image.width):
+        enqueue(x, 0)
+        enqueue(x, image.height - 1)
+    for y in range(1, image.height - 1):
+        enqueue(0, y)
+        enqueue(image.width - 1, y)
+
+    for x, y in queue:
+        r, g, b, _ = pixels[x, y]
+        pixels[x, y] = (r, g, b, 0)
+        if x > 0:
+            enqueue(x - 1, y)
+        if x + 1 < image.width:
+            enqueue(x + 1, y)
+        if y > 0:
+            enqueue(x, y - 1)
+        if y + 1 < image.height:
+            enqueue(x, y + 1)
     return image
 
 
