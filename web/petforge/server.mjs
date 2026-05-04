@@ -267,17 +267,45 @@ function removeFlatBackground(buffer, width, height, tolerance = 26) {
     return total > bestTotal ? offset : best;
   }, corners[0]);
   const bg = [buffer[bgOffset], buffer[bgOffset + 1], buffer[bgOffset + 2]];
-
-  for (let offset = 0; offset < buffer.length; offset += 4) {
-    if (buffer[offset + 3] === 0) continue;
+  const matchesBackground = (offset) => {
+    if (buffer[offset + 3] === 0) return false;
     const distance = Math.max(
       Math.abs(buffer[offset] - bg[0]),
       Math.abs(buffer[offset + 1] - bg[1]),
       Math.abs(buffer[offset + 2] - bg[2])
     );
-    if (distance <= tolerance && buffer[offset] + buffer[offset + 1] + buffer[offset + 2] > 600) {
-      buffer[offset + 3] = 0;
-    }
+    return distance <= tolerance && buffer[offset] + buffer[offset + 1] + buffer[offset + 2] > 600;
+  };
+  const visited = new Uint8Array(width * height);
+  const queue = [];
+  const enqueue = (x, y) => {
+    const index = y * width + x;
+    if (visited[index]) return;
+    const offset = index * 4;
+    if (!matchesBackground(offset)) return;
+    visited[index] = 1;
+    queue.push(index);
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    enqueue(x, 0);
+    enqueue(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    enqueue(0, y);
+    enqueue(width - 1, y);
+  }
+
+  for (let i = 0; i < queue.length; i += 1) {
+    const index = queue[i];
+    const x = index % width;
+    const y = Math.floor(index / width);
+    buffer[index * 4 + 3] = 0;
+
+    if (x > 0) enqueue(x - 1, y);
+    if (x + 1 < width) enqueue(x + 1, y);
+    if (y > 0) enqueue(x, y - 1);
+    if (y + 1 < height) enqueue(x, y + 1);
   }
 }
 
