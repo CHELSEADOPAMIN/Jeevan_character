@@ -29,6 +29,7 @@ const quotaPath = path.join(jobsDir, "daily-generation-quota.json");
 const poseNames = ["idle", "run", "wave", "jump", "crouch", "thinking", "point", "celebrate"];
 const cellWidth = 192;
 const cellHeight = 208;
+const poseExtractBleedRatio = 0.08;
 const atlasColumns = 8;
 const atlasRows = 9;
 const atlasWidth = cellWidth * atlasColumns;
@@ -179,6 +180,8 @@ function petPrompt(styleNote) {
     "Create a cute small game character suitable for a desktop pet.",
     "Use consistent proportions and the same character design in every frame.",
     "Arrange the result as a 4 columns x 4 rows sprite sheet with generous spacing.",
+    "Every frame must show the complete full body including both feet and shoes, centered inside its own grid cell.",
+    "Leave clear transparent or flat-background padding below the feet and around every pose; no part of the character may touch or cross a grid-cell edge.",
     "The first two rows must include: idle standing, running right, waving, jumping, crouching or failed, thinking or waiting, pointing or reviewing, celebrating.",
     "Use a transparent background if the model supports it; otherwise use one flat near-white background color that can be removed cleanly. No labels, no text, no UI, no frame borders, crisp pixel-art edges.",
     styleNote ? `Additional style notes: ${styleNote}` : ""
@@ -213,7 +216,11 @@ async function generateSpriteSheet({ sourcePath, mime, outPath, styleNote }) {
 
   const json = await response.json();
   if (!response.ok) {
-    throw new Error(json.error?.message || "Image generation failed.");
+    const error = new Error(json.error?.message || "Image generation failed.");
+    error.status = response.status;
+    error.requestId = response.headers.get("x-request-id") || json.error?.request_id || null;
+    error.openaiError = json.error || null;
+    throw error;
   }
   const b64 = json.data?.[0]?.b64_json;
   if (!b64) throw new Error("Image generation returned no image.");
@@ -324,6 +331,84 @@ async function trimTransparent(buffer, width, height) {
   return { buffer: data, width: info.width, height: info.height };
 }
 
+function rectOverlapArea(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function keepFocusedForeground(buffer, width, height, focusRect) {
+  const labels = new Int32Array(width * height);
+  const queue = new Int32Array(width * height);
+  const components = [];
+  let label = 0;
+
+  for (let start = 0; start < width * height; start += 1) {
+    if (labels[start] !== 0 || buffer[start * 4 + 3] <= 8) continue;
+
+    label += 1;
+    let head = 0;
+    let tail = 0;
+    let area = 0;
+    let left = width;
+    let top = height;
+    let right = -1;
+    let bottom = -1;
+
+    labels[start] = label;
+    queue[tail] = start;
+    tail += 1;
+
+    while (head < tail) {
+      const index = queue[head];
+      head += 1;
+      const x = index % width;
+      const y = Math.floor(index / width);
+      area += 1;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+
+      const neighbors = [
+        x > 0 ? index - 1 : -1,
+        x + 1 < width ? index + 1 : -1,
+        y > 0 ? index - width : -1,
+        y + 1 < height ? index + width : -1
+      ];
+
+      for (const next of neighbors) {
+        if (next < 0 || labels[next] !== 0 || buffer[next * 4 + 3] <= 8) continue;
+        labels[next] = label;
+        queue[tail] = next;
+        tail += 1;
+      }
+    }
+
+    components.push({
+      label,
+      area,
+      overlap: rectOverlapArea({ left, top, width: right - left + 1, height: bottom - top + 1 }, focusRect)
+    });
+  }
+
+  if (components.length <= 1) return;
+
+  const focused = components.filter((component) => component.overlap > 0);
+  const keep = new Set((focused.length ? focused : components)
+    .sort((a, b) => b.overlap - a.overlap || b.area - a.area)
+    .slice(0, focused.length || 1)
+    .map((component) => component.label));
+
+  for (let index = 0; index < width * height; index += 1) {
+    if (labels[index] !== 0 && !keep.has(labels[index])) {
+      buffer[index * 4 + 3] = 0;
+    }
+  }
+}
+
 async function extractPosesFromSheet(sheetPath, outDir) {
   const poseMap = {
     idle: [0, 0],
@@ -341,14 +426,28 @@ async function extractPosesFromSheet(sheetPath, outDir) {
     .toBuffer({ resolveWithObject: true });
   const cellW = Math.floor(info.width / 4);
   const cellH = Math.floor(info.height / 4);
+  const bleedX = Math.max(4, Math.floor(cellW * poseExtractBleedRatio));
+  const bleedY = Math.max(4, Math.floor(cellH * poseExtractBleedRatio));
   mkdirSync(outDir, { recursive: true });
 
   for (const [pose, [col, row]] of Object.entries(poseMap)) {
+    const cellLeft = col * cellW;
+    const cellTop = row * cellH;
+    const left = Math.max(0, cellLeft - bleedX);
+    const top = Math.max(0, cellTop - bleedY);
+    const right = Math.min(info.width, cellLeft + cellW + bleedX);
+    const bottom = Math.min(info.height, cellTop + cellH + bleedY);
     const { data: crop, info: cropInfo } = await rawImage(data, info.width, info.height)
-      .extract({ left: col * cellW, top: row * cellH, width: cellW, height: cellH })
+      .extract({ left, top, width: right - left, height: bottom - top })
       .raw()
       .toBuffer({ resolveWithObject: true });
     removeFlatBackground(crop, cropInfo.width, cropInfo.height);
+    keepFocusedForeground(crop, cropInfo.width, cropInfo.height, {
+      left: cellLeft - left,
+      top: cellTop - top,
+      width: cellW,
+      height: cellH
+    });
     const trimmed = await trimTransparent(crop, cropInfo.width, cropInfo.height);
     await writePngFromRaw(trimmed.buffer, trimmed.width, trimmed.height, path.join(outDir, `${pose}.png`));
   }
@@ -582,7 +681,17 @@ async function handleGenerate(req, res) {
     const result = await createPetPackage(body);
     sendJson(res, 200, { ...result, quota });
   } catch (error) {
-    sendJson(res, 400, { error: error.message });
+    console.error("Pet generation failed:", {
+      message: error.message,
+      status: error.status,
+      requestId: error.requestId,
+      openaiError: error.openaiError
+    });
+    sendJson(res, 400, {
+      error: error.message,
+      status: error.status,
+      requestId: error.requestId
+    });
   }
 }
 

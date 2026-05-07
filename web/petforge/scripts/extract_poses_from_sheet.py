@@ -12,6 +12,8 @@ from pathlib import Path
 
 from PIL import Image
 
+POSE_EXTRACT_BLEED_RATIO = 0.08
+
 
 POSES_4X4 = {
     "idle": (0, 0),
@@ -42,6 +44,89 @@ def trim_alpha(image: Image.Image) -> Image.Image:
     if not bbox:
         return image
     return image.crop(bbox)
+
+
+def rect_overlap_area(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> int:
+    left = max(a[0], b[0])
+    top = max(a[1], b[1])
+    right = min(a[2], b[2])
+    bottom = min(a[3], b[3])
+    return max(0, right - left) * max(0, bottom - top)
+
+
+def keep_focused_foreground(image: Image.Image, focus_rect: tuple[int, int, int, int]) -> Image.Image:
+    """Drop neighboring-cell fragments from a bleed crop while keeping the focused pose."""
+    image = image.convert("RGBA")
+    pixels = image.load()
+    width, height = image.size
+    labels = [0] * (width * height)
+    components: list[dict[str, int]] = []
+    label = 0
+
+    for start in range(width * height):
+        if labels[start] or pixels[start % width, start // width][3] <= 8:
+            continue
+
+        label += 1
+        queue = [start]
+        labels[start] = label
+        area = 0
+        left = width
+        top = height
+        right = -1
+        bottom = -1
+
+        for index in queue:
+            x = index % width
+            y = index // width
+            area += 1
+            left = min(left, x)
+            top = min(top, y)
+            right = max(right, x)
+            bottom = max(bottom, y)
+
+            neighbors = []
+            if x > 0:
+                neighbors.append(index - 1)
+            if x + 1 < width:
+                neighbors.append(index + 1)
+            if y > 0:
+                neighbors.append(index - width)
+            if y + 1 < height:
+                neighbors.append(index + width)
+
+            for next_index in neighbors:
+                if labels[next_index]:
+                    continue
+                nx = next_index % width
+                ny = next_index // width
+                if pixels[nx, ny][3] <= 8:
+                    continue
+                labels[next_index] = label
+                queue.append(next_index)
+
+        bounds = (left, top, right + 1, bottom + 1)
+        components.append({
+            "label": label,
+            "area": area,
+            "overlap": rect_overlap_area(bounds, focus_rect),
+        })
+
+    if len(components) <= 1:
+        return image
+
+    focused = [component for component in components if component["overlap"] > 0]
+    keep_components = focused or [max(components, key=lambda component: component["area"])]
+    keep = {component["label"] for component in keep_components}
+
+    for index, component_label in enumerate(labels):
+        if component_label and component_label not in keep:
+            x = index % width
+            y = index // width
+            r, g, b, _ = pixels[x, y]
+            pixels[x, y] = (r, g, b, 0)
+
+    return image
 
 
 def remove_flat_background(image: Image.Image, tolerance: int = 26) -> Image.Image:
@@ -111,11 +196,23 @@ def main() -> None:
 
     cell_w = image.width // cols
     cell_h = image.height // rows
+    bleed_x = max(4, int(cell_w * POSE_EXTRACT_BLEED_RATIO))
+    bleed_y = max(4, int(cell_h * POSE_EXTRACT_BLEED_RATIO))
     args.out.mkdir(parents=True, exist_ok=True)
 
     for pose, (col, row) in pose_map.items():
-        crop = image.crop((col * cell_w, row * cell_h, (col + 1) * cell_w, (row + 1) * cell_h))
+        cell_left = col * cell_w
+        cell_top = row * cell_h
+        left = max(0, cell_left - bleed_x)
+        top = max(0, cell_top - bleed_y)
+        right = min(image.width, cell_left + cell_w + bleed_x)
+        bottom = min(image.height, cell_top + cell_h + bleed_y)
+        crop = image.crop((left, top, right, bottom))
         crop = remove_flat_background(crop)
+        crop = keep_focused_foreground(
+            crop,
+            (cell_left - left, cell_top - top, cell_left - left + cell_w, cell_top - top + cell_h),
+        )
         crop = trim_alpha(crop)
         crop.save(args.out / f"{pose}.png")
 
