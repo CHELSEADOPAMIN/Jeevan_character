@@ -272,6 +272,76 @@ textarea:focus {
   gap: 12px;
 }
 
+.quota-card,
+.unlock-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 2px solid var(--line);
+  background: #fffdfa;
+}
+
+.quota-card {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.quota-card strong,
+.unlock-card strong {
+  display: block;
+  font-size: 18px;
+}
+
+.quota-card small,
+.unlock-card small {
+  display: block;
+  margin-top: 4px;
+  color: #5a4b3c;
+  font: 700 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+}
+
+.quota-card a,
+.unlock-actions button {
+  border: 2px solid var(--line);
+  background: var(--amber);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--line);
+  padding: 10px 12px;
+  font: 900 13px/1 ui-sans-serif, system-ui, sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.unlock-card {
+  background: #e9f2de;
+}
+
+.unlock-card input[type="file"] {
+  width: 100%;
+  border: 2px solid var(--line);
+  background: #fffdfa;
+  padding: 10px;
+  font: 700 13px/1.2 ui-sans-serif, system-ui, sans-serif;
+}
+
+.unlock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.unlock-actions button:nth-child(2) {
+  background: var(--green);
+  color: #fff9e8;
+}
+
+.unlock-actions button:disabled {
+  background: #a39a8f;
+  color: #fff9e8;
+  cursor: not-allowed;
+}
+
 .stage {
   display: grid;
   grid-template-columns: 42px 1fr;

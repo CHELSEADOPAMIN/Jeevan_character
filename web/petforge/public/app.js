@@ -12,18 +12,50 @@ const copyPrompt = document.querySelector("#copy-prompt");
 const modeNote = document.querySelector("#mode-note");
 const submit = form.querySelector("button[type='submit']");
 const serverMode = document.querySelector("#server-mode");
+const quotaTitle = document.querySelector("#quota-title");
+const quotaDetail = document.querySelector("#quota-detail");
+const starRepo = document.querySelector("#star-repo");
+const starShot = document.querySelector("#star-shot");
+const verifyStar = document.querySelector("#verify-star");
+const buyCredits = document.querySelector("#buy-credits");
+const unlockNote = document.querySelector("#unlock-note");
 
 let imageDataUrl = "";
+let starShotDataUrl = "";
 let canGenerateFromPhoto = false;
+let stripeEnabled = false;
 const maxUploadBytes = 3 * 1024 * 1024;
 
 function quotaText(quota) {
   if (!quota) return "";
-  return ` Daily limit: ${quota.remaining}/${quota.limit} generations left today.`;
+  return ` ${quota.remaining}/${quota.limit} generations left.`;
 }
 
 function hasQuota(quota) {
   return !quota || quota.remaining > 0;
+}
+
+function formatMoney(cents) {
+  return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+}
+
+function renderQuota(status) {
+  const quota = status.quota;
+  if (!quota) return;
+
+  quotaTitle.textContent = quota.starVerified ? "Star bonus active" : "Daily access";
+  quotaDetail.textContent = `${quota.remaining}/${quota.limit} generations left for this IP today. Base ${quota.baseLimit}/day, starred ${quota.starLimit}/day, paid extras ${quota.paidCredits}.`;
+  starRepo.href = status.githubRepoUrl;
+  verifyStar.disabled = quota.starVerified;
+  buyCredits.disabled = !status.hasStripeKey;
+  buyCredits.textContent = `Buy ${quota.paidPack.generations} for ${formatMoney(quota.paidPack.amountCents)}`;
+  unlockNote.textContent = quota.starVerified
+    ? "GitHub Star was verified for this IP. Your included daily quota is now 10."
+    : `Star ${status.githubRepoName}, then upload a screenshot showing the starred state to unlock 10 daily generations for this IP.`;
+  if (!status.hasStripeKey) {
+    unlockNote.textContent += " Paid packs need STRIPE_SECRET_KEY on the server.";
+  }
+  stripeEnabled = status.hasStripeKey;
 }
 
 function setStages(activeName) {
@@ -90,11 +122,29 @@ photo.addEventListener("change", async () => {
   setStages("upload");
 });
 
+starShot.addEventListener("change", async () => {
+  const file = starShot.files?.[0];
+  if (!file) return;
+  errorBox.hidden = true;
+
+  if (file.size > maxUploadBytes) {
+    starShotDataUrl = "";
+    starShot.value = "";
+    errorBox.textContent = "Please upload a GitHub screenshot under 3 MB.";
+    errorBox.hidden = false;
+    return;
+  }
+
+  starShotDataUrl = await readFileAsDataUrl(file);
+  unlockNote.textContent = "Screenshot loaded. Click Verify Star to check it with AI.";
+});
+
 async function loadStatus() {
   try {
     const response = await fetch("/api/status");
     const status = await response.json();
     canGenerateFromPhoto = status.canGenerateFromPhoto;
+    renderQuota(status);
 
     serverMode.classList.remove("ok", "warn");
     if (status.mode === "openai") {
@@ -116,6 +166,83 @@ async function loadStatus() {
     submit.disabled = true;
   }
 }
+
+async function confirmCheckoutFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("checkout") !== "success" || !params.get("session_id")) return;
+
+  try {
+    unlockNote.textContent = "Confirming payment...";
+    const response = await fetch(`/api/payment/confirm?session_id=${encodeURIComponent(params.get("session_id"))}`);
+    const data = await readJsonOrError(response);
+    if (!response.ok) throw new Error(data.error || "Could not confirm payment.");
+    unlockNote.textContent = "Payment confirmed. Five extra generations were added to this IP.";
+    window.history.replaceState({}, "", window.location.pathname);
+    loadStatus();
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+  }
+}
+
+verifyStar.addEventListener("click", async () => {
+  errorBox.hidden = true;
+  if (!starShotDataUrl) {
+    errorBox.textContent = "Please upload a GitHub Star screenshot first.";
+    errorBox.hidden = false;
+    return;
+  }
+
+  verifyStar.disabled = true;
+  verifyStar.textContent = "Verifying...";
+  unlockNote.textContent = "AI is checking whether the screenshot shows this repo starred.";
+  try {
+    const response = await fetch("/api/verify-star", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dataUrl: starShotDataUrl })
+    });
+    const data = await readJsonOrError(response);
+    if (!response.ok) throw new Error(data.error || "Star verification failed.");
+    unlockNote.textContent = "Star verified. This IP now gets 10 included generations per day.";
+    renderQuota({
+      quota: data.quota,
+      githubRepoUrl: starRepo.href,
+      githubRepoName: new URL(starRepo.href).pathname.replace(/^\//, ""),
+      hasStripeKey: stripeEnabled
+    });
+    loadStatus();
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+  } finally {
+    verifyStar.textContent = "Verify Star";
+    verifyStar.disabled = false;
+  }
+});
+
+buyCredits.addEventListener("click", async () => {
+  errorBox.hidden = true;
+  if (!stripeEnabled) {
+    errorBox.textContent = "Paid packs are not enabled on this server. Add STRIPE_SECRET_KEY first.";
+    errorBox.hidden = false;
+    return;
+  }
+
+  buyCredits.disabled = true;
+  buyCredits.textContent = "Opening checkout...";
+  try {
+    const response = await fetch("/api/create-checkout", { method: "POST" });
+    const data = await readJsonOrError(response);
+    if (!response.ok) throw new Error(data.error || "Could not create checkout.");
+    window.location.href = data.url;
+  } catch (error) {
+    errorBox.textContent = error.message;
+    errorBox.hidden = false;
+    buyCredits.disabled = false;
+    loadStatus();
+  }
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -174,8 +301,8 @@ form.addEventListener("submit", async (event) => {
     errorBox.hidden = false;
     setStages("upload");
   } finally {
-    submit.disabled = false;
     submit.querySelector("span").textContent = "Generate pet package";
+    loadStatus();
   }
 });
 
@@ -195,3 +322,4 @@ copyPrompt.addEventListener("click", async () => {
 });
 
 loadStatus();
+confirmCheckoutFromUrl();

@@ -24,11 +24,18 @@ if (existsSync(envPath)) {
 
 const port = Number(process.env.PORT || 4177);
 const dailyGenerationLimit = Number(process.env.PETFORGE_DAILY_LIMIT || 5);
+const starredDailyGenerationLimit = Number(process.env.PETFORGE_STAR_DAILY_LIMIT || 10);
+const paidGenerationsPerPack = Number(process.env.PETFORGE_PAID_PACK_GENERATIONS || 5);
+const paidPackAmountCents = Number(process.env.PETFORGE_PAID_PACK_AMOUNT_CENTS || 200);
+const githubRepoUrl = process.env.PETFORGE_GITHUB_REPO_URL || "https://github.com/CHELSEADOPAMIN/CodexPetss";
+const githubRepoName = githubRepoUrl.replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "");
 const quotaPath = path.join(jobsDir, "daily-generation-quota.json");
+const paymentPath = path.join(jobsDir, "payment-sessions.json");
 
 const poseNames = ["idle", "run", "wave", "jump", "crouch", "thinking", "point", "celebrate"];
 const cellWidth = 192;
 const cellHeight = 208;
+const poseExtractBleedRatio = 0.08;
 const atlasColumns = 8;
 const atlasRows = 9;
 const atlasWidth = cellWidth * atlasColumns;
@@ -80,6 +87,19 @@ function readQuotaStore() {
     if (store?.date === today && store?.clients && typeof store.clients === "object") {
       return store;
     }
+    if (store?.clients && typeof store.clients === "object") {
+      const clients = {};
+      for (const [key, value] of Object.entries(store.clients)) {
+        clients[key] = {
+          count: 0,
+          paidCredits: Number(value?.paidCredits || 0),
+          starVerified: Boolean(value?.starVerified),
+          starVerifiedAt: value?.starVerifiedAt || null,
+          lastSeenAt: value?.lastSeenAt || null
+        };
+      }
+      return { date: today, clients };
+    }
   } catch {
     // A malformed quota file should not block the app; start a fresh daily window.
   }
@@ -94,16 +114,48 @@ function writeQuotaStore(store) {
   renameSync(tmpPath, quotaPath);
 }
 
+function getClientQuotaRecord(store, key) {
+  const record = store.clients[key] || {};
+  return {
+    count: Number(record.count || 0),
+    paidCredits: Number(record.paidCredits || 0),
+    starVerified: Boolean(record.starVerified),
+    starVerifiedAt: record.starVerifiedAt || null,
+    lastSeenAt: record.lastSeenAt || null
+  };
+}
+
+function getIncludedLimit(record) {
+  const baseLimit = Number.isFinite(dailyGenerationLimit) && dailyGenerationLimit > 0 ? dailyGenerationLimit : 5;
+  const starLimit = Number.isFinite(starredDailyGenerationLimit) && starredDailyGenerationLimit > baseLimit
+    ? starredDailyGenerationLimit
+    : baseLimit;
+  return record.starVerified ? starLimit : baseLimit;
+}
+
 function getQuotaStatus(req) {
-  const limit = Number.isFinite(dailyGenerationLimit) && dailyGenerationLimit > 0 ? dailyGenerationLimit : 5;
   const store = readQuotaStore();
   const key = getClientQuotaKey(req);
-  const used = Number(store.clients[key]?.count || 0);
+  const record = getClientQuotaRecord(store, key);
+  const includedLimit = getIncludedLimit(record);
+  const includedRemaining = Math.max(0, includedLimit - record.count);
+  const remaining = includedRemaining + record.paidCredits;
   return {
-    limit,
-    used,
-    remaining: Math.max(0, limit - used),
-    resetsOn: store.date
+    limit: record.count + remaining,
+    includedLimit,
+    baseLimit: Number.isFinite(dailyGenerationLimit) && dailyGenerationLimit > 0 ? dailyGenerationLimit : 5,
+    starLimit: Number.isFinite(starredDailyGenerationLimit) && starredDailyGenerationLimit > 0 ? starredDailyGenerationLimit : 10,
+    used: record.count,
+    remaining,
+    paidCredits: record.paidCredits,
+    starVerified: record.starVerified,
+    starVerifiedAt: record.starVerifiedAt,
+    resetsOn: store.date,
+    paidPack: {
+      generations: paidGenerationsPerPack,
+      amountCents: paidPackAmountCents,
+      currency: "usd"
+    }
   };
 }
 
@@ -113,19 +165,38 @@ function consumeGenerationQuota(req) {
 
   const store = readQuotaStore();
   const key = getClientQuotaKey(req);
-  const current = store.clients[key] || { count: 0 };
+  const current = getClientQuotaRecord(store, key);
   current.count = Number(current.count || 0) + 1;
+  if (current.count > status.includedLimit && current.paidCredits > 0) {
+    current.paidCredits -= 1;
+  }
   current.lastSeenAt = new Date().toISOString();
   store.clients[key] = current;
   writeQuotaStore(store);
 
+  const includedLimit = getIncludedLimit(current);
+  const remaining = Math.max(0, includedLimit - current.count) + current.paidCredits;
   return {
     ok: true,
-    limit: status.limit,
+    limit: current.count + remaining,
+    includedLimit,
     used: current.count,
-    remaining: Math.max(0, status.limit - current.count),
+    remaining,
+    paidCredits: current.paidCredits,
+    starVerified: current.starVerified,
     resetsOn: store.date
   };
+}
+
+function updateClientQuota(req, updater) {
+  const store = readQuotaStore();
+  const key = getClientQuotaKey(req);
+  const record = getClientQuotaRecord(store, key);
+  updater(record);
+  record.lastSeenAt = new Date().toISOString();
+  store.clients[key] = record;
+  writeQuotaStore(store);
+  return getQuotaStatus(req);
 }
 
 function sendFile(res, filePath) {
@@ -172,6 +243,77 @@ function parseDataUrl(dataUrl) {
   return { mime: match[1], ext, buffer: Buffer.from(match[2], "base64") };
 }
 
+function extractResponseText(json) {
+  if (typeof json.output_text === "string") return json.output_text;
+  const chunks = [];
+  for (const item of json.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string") chunks.push(content.text);
+    }
+  }
+  return chunks.join("\n");
+}
+
+function parseJsonObject(text) {
+  const source = String(text || "").trim();
+  try {
+    return JSON.parse(source);
+  } catch {
+    const match = /\{[\s\S]*\}/.exec(source);
+    if (!match) throw new Error("AI verification returned an unreadable result.");
+    return JSON.parse(match[0]);
+  }
+}
+
+async function verifyGithubStarScreenshot(dataUrl) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not set. Star screenshot verification needs OpenAI vision.");
+  }
+
+  parseDataUrl(dataUrl);
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model: process.env.VISION_MODEL || "gpt-4.1-mini",
+      input: [{
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: [
+              `You are verifying whether a user has starred the GitHub repository ${githubRepoName}.`,
+              "Inspect the screenshot. Return only JSON with:",
+              '{"starred": boolean, "confidence": number, "reason": string}',
+              "Set starred=true only if the screenshot clearly shows this repository page and a GitHub Star button in the starred state, such as Starred/Unstar, or clear visual evidence the repo is already starred.",
+              "If the screenshot is ambiguous, from a different repo, edited, cropped too tightly, or only shows an unstarred Star button, return starred=false."
+            ].join("\n")
+          },
+          { type: "input_image", image_url: dataUrl, detail: "high" }
+        ]
+      }]
+    })
+  });
+
+  const json = await response.json();
+  if (!response.ok) {
+    const error = new Error(json.error?.message || "Star screenshot verification failed.");
+    error.status = response.status;
+    error.requestId = response.headers.get("x-request-id") || json.error?.request_id || null;
+    throw error;
+  }
+
+  const result = parseJsonObject(extractResponseText(json));
+  return {
+    starred: Boolean(result.starred),
+    confidence: Number(result.confidence || 0),
+    reason: String(result.reason || "")
+  };
+}
+
 function petPrompt(styleNote) {
   return [
     "Generate a clean 8-bit pixel art platformer sprite sheet for this person.",
@@ -179,6 +321,8 @@ function petPrompt(styleNote) {
     "Create a cute small game character suitable for a desktop pet.",
     "Use consistent proportions and the same character design in every frame.",
     "Arrange the result as a 4 columns x 4 rows sprite sheet with generous spacing.",
+    "Every frame must show the complete full body including both feet and shoes, centered inside its own grid cell.",
+    "Leave clear transparent or flat-background padding below the feet and around every pose; no part of the character may touch or cross a grid-cell edge.",
     "The first two rows must include: idle standing, running right, waving, jumping, crouching or failed, thinking or waiting, pointing or reviewing, celebrating.",
     "Use a transparent background if the model supports it; otherwise use one flat near-white background color that can be removed cleanly. No labels, no text, no UI, no frame borders, crisp pixel-art edges.",
     styleNote ? `Additional style notes: ${styleNote}` : ""
@@ -213,7 +357,11 @@ async function generateSpriteSheet({ sourcePath, mime, outPath, styleNote }) {
 
   const json = await response.json();
   if (!response.ok) {
-    throw new Error(json.error?.message || "Image generation failed.");
+    const error = new Error(json.error?.message || "Image generation failed.");
+    error.status = response.status;
+    error.requestId = response.headers.get("x-request-id") || json.error?.request_id || null;
+    error.openaiError = json.error || null;
+    throw error;
   }
   const b64 = json.data?.[0]?.b64_json;
   if (!b64) throw new Error("Image generation returned no image.");
@@ -324,6 +472,84 @@ async function trimTransparent(buffer, width, height) {
   return { buffer: data, width: info.width, height: info.height };
 }
 
+function rectOverlapArea(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.left + a.width, b.left + b.width);
+  const bottom = Math.min(a.top + a.height, b.top + b.height);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
+function keepFocusedForeground(buffer, width, height, focusRect) {
+  const labels = new Int32Array(width * height);
+  const queue = new Int32Array(width * height);
+  const components = [];
+  let label = 0;
+
+  for (let start = 0; start < width * height; start += 1) {
+    if (labels[start] !== 0 || buffer[start * 4 + 3] <= 8) continue;
+
+    label += 1;
+    let head = 0;
+    let tail = 0;
+    let area = 0;
+    let left = width;
+    let top = height;
+    let right = -1;
+    let bottom = -1;
+
+    labels[start] = label;
+    queue[tail] = start;
+    tail += 1;
+
+    while (head < tail) {
+      const index = queue[head];
+      head += 1;
+      const x = index % width;
+      const y = Math.floor(index / width);
+      area += 1;
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+
+      const neighbors = [
+        x > 0 ? index - 1 : -1,
+        x + 1 < width ? index + 1 : -1,
+        y > 0 ? index - width : -1,
+        y + 1 < height ? index + width : -1
+      ];
+
+      for (const next of neighbors) {
+        if (next < 0 || labels[next] !== 0 || buffer[next * 4 + 3] <= 8) continue;
+        labels[next] = label;
+        queue[tail] = next;
+        tail += 1;
+      }
+    }
+
+    components.push({
+      label,
+      area,
+      overlap: rectOverlapArea({ left, top, width: right - left + 1, height: bottom - top + 1 }, focusRect)
+    });
+  }
+
+  if (components.length <= 1) return;
+
+  const focused = components.filter((component) => component.overlap > 0);
+  const keep = new Set((focused.length ? focused : components)
+    .sort((a, b) => b.overlap - a.overlap || b.area - a.area)
+    .slice(0, focused.length || 1)
+    .map((component) => component.label));
+
+  for (let index = 0; index < width * height; index += 1) {
+    if (labels[index] !== 0 && !keep.has(labels[index])) {
+      buffer[index * 4 + 3] = 0;
+    }
+  }
+}
+
 async function extractPosesFromSheet(sheetPath, outDir) {
   const poseMap = {
     idle: [0, 0],
@@ -341,14 +567,28 @@ async function extractPosesFromSheet(sheetPath, outDir) {
     .toBuffer({ resolveWithObject: true });
   const cellW = Math.floor(info.width / 4);
   const cellH = Math.floor(info.height / 4);
+  const bleedX = Math.max(4, Math.floor(cellW * poseExtractBleedRatio));
+  const bleedY = Math.max(4, Math.floor(cellH * poseExtractBleedRatio));
   mkdirSync(outDir, { recursive: true });
 
   for (const [pose, [col, row]] of Object.entries(poseMap)) {
+    const cellLeft = col * cellW;
+    const cellTop = row * cellH;
+    const left = Math.max(0, cellLeft - bleedX);
+    const top = Math.max(0, cellTop - bleedY);
+    const right = Math.min(info.width, cellLeft + cellW + bleedX);
+    const bottom = Math.min(info.height, cellTop + cellH + bleedY);
     const { data: crop, info: cropInfo } = await rawImage(data, info.width, info.height)
-      .extract({ left: col * cellW, top: row * cellH, width: cellW, height: cellH })
+      .extract({ left, top, width: right - left, height: bottom - top })
       .raw()
       .toBuffer({ resolveWithObject: true });
     removeFlatBackground(crop, cropInfo.width, cropInfo.height);
+    keepFocusedForeground(crop, cropInfo.width, cropInfo.height, {
+      left: cellLeft - left,
+      top: cellTop - top,
+      width: cellW,
+      height: cellH
+    });
     const trimmed = await trimTransparent(crop, cropInfo.width, cropInfo.height);
     await writePngFromRaw(trimmed.buffer, trimmed.width, trimmed.height, path.join(outDir, `${pose}.png`));
   }
@@ -582,7 +822,164 @@ async function handleGenerate(req, res) {
     const result = await createPetPackage(body);
     sendJson(res, 200, { ...result, quota });
   } catch (error) {
+    console.error("Pet generation failed:", {
+      message: error.message,
+      status: error.status,
+      requestId: error.requestId,
+      openaiError: error.openaiError
+    });
+    sendJson(res, 400, {
+      error: error.message,
+      status: error.status,
+      requestId: error.requestId
+    });
+  }
+}
+
+async function handleVerifyStar(req, res) {
+  try {
+    const body = JSON.parse(await readBody(req));
+    const verification = await verifyGithubStarScreenshot(body.dataUrl);
+    if (!verification.starred || verification.confidence < 0.72) {
+      sendJson(res, 422, {
+        error: "The screenshot does not clearly show this GitHub repository in a starred state. Please upload a full screenshot of the repo page after starring it.",
+        verification,
+        quota: getQuotaStatus(req)
+      });
+      return;
+    }
+
+    const quota = updateClientQuota(req, (record) => {
+      record.starVerified = true;
+      record.starVerifiedAt = new Date().toISOString();
+    });
+    sendJson(res, 200, { ok: true, verification, quota });
+  } catch (error) {
+    console.error("Star verification failed:", {
+      message: error.message,
+      status: error.status,
+      requestId: error.requestId
+    });
+    sendJson(res, 400, {
+      error: error.message,
+      status: error.status,
+      requestId: error.requestId
+    });
+  }
+}
+
+function publicBaseUrl(req) {
+  if (process.env.PETFORGE_PUBLIC_URL) return process.env.PETFORGE_PUBLIC_URL.replace(/\/$/, "");
+  const proto = req.headers["x-forwarded-proto"] || "http";
+  return `${proto}://${req.headers.host}`;
+}
+
+function readPaymentStore() {
+  if (!existsSync(paymentPath)) return { sessions: {} };
+  try {
+    const store = JSON.parse(readFileSync(paymentPath, "utf8"));
+    if (store?.sessions && typeof store.sessions === "object") return store;
+  } catch {
+    // Ignore malformed payment state; Stripe remains the source of truth.
+  }
+  return { sessions: {} };
+}
+
+function writePaymentStore(store) {
+  mkdirSync(jobsDir, { recursive: true });
+  const tmpPath = `${paymentPath}.tmp`;
+  writeFileSync(tmpPath, `${JSON.stringify(store, null, 2)}\n`);
+  renameSync(tmpPath, paymentPath);
+}
+
+async function stripeRequest(pathname, params) {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error("STRIPE_SECRET_KEY is not set. Paid generation packs are not enabled.");
+  }
+
+  const response = await fetch(`https://api.stripe.com/v1/${pathname}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams(params)
+  });
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(json.error?.message || "Stripe request failed.");
+  }
+  return json;
+}
+
+async function stripeGet(pathname) {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    throw new Error("STRIPE_SECRET_KEY is not set. Paid generation packs are not enabled.");
+  }
+
+  const response = await fetch(`https://api.stripe.com/v1/${pathname}`, {
+    headers: { authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` }
+  });
+  const json = await response.json();
+  if (!response.ok) {
+    throw new Error(json.error?.message || "Stripe request failed.");
+  }
+  return json;
+}
+
+async function handleCreateCheckout(req, res) {
+  try {
+    const clientKey = getClientQuotaKey(req);
+    const baseUrl = publicBaseUrl(req);
+    const session = await stripeRequest("checkout/sessions", {
+      mode: "payment",
+      success_url: `${baseUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${baseUrl}/?checkout=cancel`,
+      "line_items[0][quantity]": "1",
+      "line_items[0][price_data][currency]": "usd",
+      "line_items[0][price_data][unit_amount]": String(paidPackAmountCents),
+      "line_items[0][price_data][product_data][name]": `${paidGenerationsPerPack} extra CodexPet generations`,
+      "metadata[client_key]": clientKey,
+      "metadata[generations]": String(paidGenerationsPerPack)
+    });
+
+    const store = readPaymentStore();
+    store.sessions[session.id] = { clientKey, credited: false, createdAt: new Date().toISOString() };
+    writePaymentStore(store);
+    sendJson(res, 200, { url: session.url });
+  } catch (error) {
     sendJson(res, 400, { error: error.message });
+  }
+}
+
+async function handleConfirmPayment(req, res, sessionId) {
+  try {
+    if (!sessionId) throw new Error("Missing Stripe session id.");
+
+    const clientKey = getClientQuotaKey(req);
+    const store = readPaymentStore();
+    const localSession = store.sessions[sessionId];
+    if (!localSession || localSession.clientKey !== clientKey) {
+      throw new Error("This payment session does not belong to the current IP.");
+    }
+
+    const session = await stripeGet(`checkout/sessions/${encodeURIComponent(sessionId)}`);
+    if (session.payment_status !== "paid") {
+      throw new Error("Stripe has not marked this checkout session as paid.");
+    }
+
+    if (!localSession.credited) {
+      updateClientQuota(req, (record) => {
+        record.paidCredits = Number(record.paidCredits || 0) + paidGenerationsPerPack;
+      });
+      localSession.credited = true;
+      localSession.creditedAt = new Date().toISOString();
+      writePaymentStore(store);
+    }
+
+    sendJson(res, 200, { ok: true, quota: getQuotaStatus(req) });
+  } catch (error) {
+    sendJson(res, 400, { error: error.message, quota: getQuotaStatus(req) });
   }
 }
 
@@ -590,10 +987,14 @@ function handleStatus(req, res) {
   const demoOnly = process.env.PETFORGE_DEMO_ONLY === "1";
   sendJson(res, 200, {
     hasOpenAiKey: Boolean(process.env.OPENAI_API_KEY),
+    hasStripeKey: Boolean(process.env.STRIPE_SECRET_KEY),
     demoOnly,
     canGenerateFromPhoto: Boolean(process.env.OPENAI_API_KEY) && !demoOnly,
     mode: demoOnly ? "demo" : process.env.OPENAI_API_KEY ? "openai" : "missing-key",
     imageModel: process.env.IMAGE_MODEL || "gpt-image-2",
+    visionModel: process.env.VISION_MODEL || "gpt-4.1-mini",
+    githubRepoUrl,
+    githubRepoName,
     quota: getQuotaStatus(req)
   });
 }
@@ -608,6 +1009,21 @@ export async function appHandler(req, res) {
 
   if (req.method === "POST" && url.pathname === "/api/generate") {
     await handleGenerate(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/verify-star") {
+    await handleVerifyStar(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/create-checkout") {
+    await handleCreateCheckout(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/payment/confirm") {
+    await handleConfirmPayment(req, res, url.searchParams.get("session_id"));
     return;
   }
 
