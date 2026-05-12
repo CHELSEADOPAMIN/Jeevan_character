@@ -45,6 +45,81 @@ ROW_SPECS = [
 ]
 
 
+def fill_enclosed_alpha_holes(image: Image.Image, alpha_threshold: int = 8) -> Image.Image:
+    image = image.convert("RGBA")
+    pixels = image.load()
+    width, height = image.size
+
+    def is_transparent(x: int, y: int) -> bool:
+        return pixels[x, y][3] <= alpha_threshold
+
+    exterior: set[tuple[int, int]] = set()
+    queue: list[tuple[int, int]] = []
+
+    def enqueue(x: int, y: int) -> None:
+        if (x, y) in exterior or not is_transparent(x, y):
+            return
+        exterior.add((x, y))
+        queue.append((x, y))
+
+    for x in range(width):
+        enqueue(x, 0)
+        enqueue(x, height - 1)
+    for y in range(1, height - 1):
+        enqueue(0, y)
+        enqueue(width - 1, y)
+
+    for x, y in queue:
+        if x > 0:
+            enqueue(x - 1, y)
+        if x + 1 < width:
+            enqueue(x + 1, y)
+        if y > 0:
+            enqueue(x, y - 1)
+        if y + 1 < height:
+            enqueue(x, y + 1)
+
+    pending = {
+        (x, y)
+        for y in range(height)
+        for x in range(width)
+        if is_transparent(x, y) and (x, y) not in exterior
+    }
+
+    while pending:
+        progressed = False
+        for x, y in list(pending):
+            samples = []
+            for ny in range(max(0, y - 1), min(height, y + 2)):
+                for nx in range(max(0, x - 1), min(width, x + 2)):
+                    if (nx, ny) == (x, y) or (nx, ny) in pending:
+                        continue
+                    r, g, b, a = pixels[nx, ny]
+                    if a > alpha_threshold:
+                        samples.append((r, g, b))
+
+            if not samples:
+                continue
+
+            count = len(samples)
+            pixels[x, y] = (
+                round(sum(sample[0] for sample in samples) / count),
+                round(sum(sample[1] for sample in samples) / count),
+                round(sum(sample[2] for sample in samples) / count),
+                255,
+            )
+            pending.remove((x, y))
+            progressed = True
+
+        if not progressed:
+            for x, y in pending:
+                r, g, b, _ = pixels[x, y]
+                pixels[x, y] = (r, g, b, 255)
+            pending.clear()
+
+    return image
+
+
 def find_pose(pose_dir: Path, names: Iterable[str]) -> Path:
     for name in names:
         for suffix in (".png", ".webp"):
@@ -56,6 +131,7 @@ def find_pose(pose_dir: Path, names: Iterable[str]) -> Path:
 
 def fit_to_cell(image: Image.Image) -> Image.Image:
     image = image.convert("RGBA")
+    image = fill_enclosed_alpha_holes(image)
     bbox = image.getbbox()
     if bbox:
         image = image.crop(bbox)

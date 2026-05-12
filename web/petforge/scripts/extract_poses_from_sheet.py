@@ -183,6 +183,87 @@ def remove_flat_background(image: Image.Image, tolerance: int = 26) -> Image.Ima
     return image
 
 
+def fill_enclosed_alpha_holes(image: Image.Image, alpha_threshold: int = 8) -> Image.Image:
+    """Fill transparent holes enclosed by opaque sprite pixels.
+
+    Exterior transparency is preserved. Only fully enclosed transparent pixels
+    inside the character silhouette are made opaque again.
+    """
+    image = image.convert("RGBA")
+    pixels = image.load()
+    width, height = image.size
+
+    def is_transparent(x: int, y: int) -> bool:
+        return pixels[x, y][3] <= alpha_threshold
+
+    exterior: set[tuple[int, int]] = set()
+    queue: list[tuple[int, int]] = []
+
+    def enqueue(x: int, y: int) -> None:
+        if (x, y) in exterior or not is_transparent(x, y):
+            return
+        exterior.add((x, y))
+        queue.append((x, y))
+
+    for x in range(width):
+        enqueue(x, 0)
+        enqueue(x, height - 1)
+    for y in range(1, height - 1):
+        enqueue(0, y)
+        enqueue(width - 1, y)
+
+    for x, y in queue:
+        if x > 0:
+            enqueue(x - 1, y)
+        if x + 1 < width:
+            enqueue(x + 1, y)
+        if y > 0:
+            enqueue(x, y - 1)
+        if y + 1 < height:
+            enqueue(x, y + 1)
+
+    holes = {
+        (x, y)
+        for y in range(height)
+        for x in range(width)
+        if is_transparent(x, y) and (x, y) not in exterior
+    }
+    pending = set(holes)
+
+    while pending:
+        progressed = False
+        for x, y in list(pending):
+            samples = []
+            for ny in range(max(0, y - 1), min(height, y + 2)):
+                for nx in range(max(0, x - 1), min(width, x + 2)):
+                    if (nx, ny) == (x, y) or (nx, ny) in pending:
+                        continue
+                    r, g, b, a = pixels[nx, ny]
+                    if a > alpha_threshold:
+                        samples.append((r, g, b))
+
+            if not samples:
+                continue
+
+            count = len(samples)
+            pixels[x, y] = (
+                round(sum(sample[0] for sample in samples) / count),
+                round(sum(sample[1] for sample in samples) / count),
+                round(sum(sample[2] for sample in samples) / count),
+                255,
+            )
+            pending.remove((x, y))
+            progressed = True
+
+        if not progressed:
+            for x, y in pending:
+                r, g, b, _ = pixels[x, y]
+                pixels[x, y] = (r, g, b, 255)
+            pending.clear()
+
+    return image
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("sheet", type=Path)
@@ -213,6 +294,7 @@ def main() -> None:
             crop,
             (cell_left - left, cell_top - top, cell_left - left + cell_w, cell_top - top + cell_h),
         )
+        crop = fill_enclosed_alpha_holes(crop)
         crop = trim_alpha(crop)
         crop.save(args.out / f"{pose}.png")
 

@@ -322,6 +322,7 @@ function petPrompt(styleNote) {
     "Use consistent proportions and the same character design in every frame.",
     "Arrange the result as a 4 columns x 4 rows sprite sheet with generous spacing.",
     "Every frame must show the complete full body including both feet and shoes, centered inside its own grid cell.",
+    "The character body, hair, face, clothes, shoes, and accessories must be fully opaque with no transparent cut-outs, see-through gaps, or missing pixels inside the sprite silhouette.",
     "Leave clear transparent or flat-background padding below the feet and around every pose; no part of the character may touch or cross a grid-cell edge.",
     "The first two rows must include: idle standing, running right, waving, jumping, crouching or failed, thinking or waiting, pointing or reviewing, celebrating.",
     "Use a transparent background if the model supports it; otherwise use one flat near-white background color that can be removed cleanly. No labels, no text, no UI, no frame borders, crisp pixel-art edges.",
@@ -457,6 +458,104 @@ function removeFlatBackground(buffer, width, height, tolerance = 26) {
   }
 }
 
+function fillEnclosedTransparentHoles(buffer, width, height, alphaThreshold = 8) {
+  const totalPixels = width * height;
+  const exterior = new Uint8Array(totalPixels);
+  const queue = new Int32Array(totalPixels);
+  let head = 0;
+  let tail = 0;
+
+  const isTransparent = (index) => buffer[index * 4 + 3] <= alphaThreshold;
+  const enqueueExterior = (index) => {
+    if (index < 0 || index >= totalPixels || exterior[index] || !isTransparent(index)) return;
+    exterior[index] = 1;
+    queue[tail] = index;
+    tail += 1;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    enqueueExterior(x);
+    enqueueExterior((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    enqueueExterior(y * width);
+    enqueueExterior(y * width + width - 1);
+  }
+
+  while (head < tail) {
+    const index = queue[head];
+    head += 1;
+    const x = index % width;
+    const y = Math.floor(index / width);
+
+    if (x > 0) enqueueExterior(index - 1);
+    if (x + 1 < width) enqueueExterior(index + 1);
+    if (y > 0) enqueueExterior(index - width);
+    if (y + 1 < height) enqueueExterior(index + width);
+  }
+
+  const holes = [];
+  for (let index = 0; index < totalPixels; index += 1) {
+    if (isTransparent(index) && !exterior[index]) holes.push(index);
+  }
+  if (holes.length === 0) return 0;
+
+  const pending = new Set(holes);
+  const neighborOffsets = [
+    -width - 1, -width, -width + 1,
+    -1, 1,
+    width - 1, width, width + 1
+  ];
+  let filled = 0;
+
+  while (pending.size > 0) {
+    let progressed = false;
+
+    for (const index of [...pending]) {
+      const x = index % width;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let count = 0;
+
+      for (const offset of neighborOffsets) {
+        const neighbor = index + offset;
+        if (neighbor < 0 || neighbor >= totalPixels || pending.has(neighbor)) continue;
+        const nx = neighbor % width;
+        if (Math.abs(nx - x) > 1) continue;
+        const sourceOffset = neighbor * 4;
+        if (buffer[sourceOffset + 3] <= alphaThreshold) continue;
+
+        r += buffer[sourceOffset];
+        g += buffer[sourceOffset + 1];
+        b += buffer[sourceOffset + 2];
+        count += 1;
+      }
+
+      if (count === 0) continue;
+
+      const targetOffset = index * 4;
+      buffer[targetOffset] = Math.round(r / count);
+      buffer[targetOffset + 1] = Math.round(g / count);
+      buffer[targetOffset + 2] = Math.round(b / count);
+      buffer[targetOffset + 3] = 255;
+      pending.delete(index);
+      filled += 1;
+      progressed = true;
+    }
+
+    if (!progressed) {
+      for (const index of pending) {
+        buffer[index * 4 + 3] = 255;
+        filled += 1;
+      }
+      pending.clear();
+    }
+  }
+
+  return filled;
+}
+
 async function writePngFromRaw(buffer, width, height, outPath) {
   await rawImage(buffer, width, height).png().toFile(outPath);
 }
@@ -589,6 +688,7 @@ async function extractPosesFromSheet(sheetPath, outDir) {
       width: cellW,
       height: cellH
     });
+    fillEnclosedTransparentHoles(crop, cropInfo.width, cropInfo.height);
     const trimmed = await trimTransparent(crop, cropInfo.width, cropInfo.height);
     await writePngFromRaw(trimmed.buffer, trimmed.width, trimmed.height, path.join(outDir, `${pose}.png`));
   }
@@ -608,6 +708,7 @@ async function fitToCell(posePath, mirror) {
   let image = sharp(posePath).ensureAlpha();
   if (mirror) image = image.flop();
   const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
+  fillEnclosedTransparentHoles(data, info.width, info.height);
   const trimmed = await trimTransparent(data, info.width, info.height);
   const maxW = Math.floor(cellWidth * 0.82);
   const maxH = Math.floor(cellHeight * 0.88);
